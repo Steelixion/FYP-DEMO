@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Echo — Voice Companion</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #1e1e2e;
+    --accent: #7c6af7;
+    --accent2: #f76a8c;
+    --accent3: #6af7c8;
+    --text: #e8e8f0;
+    --muted: #5a5a7a;
+    --orb-idle: #2a2a4a;
+    --orb-listen: #7c6af7;
+    --orb-speak: #f76a8c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* Noise grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.4;
+  }
+
+  /* Ambient bg blobs */
+  .ambient {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .ambient-1 { width: 500px; height: 500px; background: rgba(124,106,247,0.07); top: -100px; left: -100px; }
+  .ambient-2 { width: 400px; height: 400px; background: rgba(247,106,140,0.06); bottom: -100px; right: -100px; }
+  .ambient-3 { width: 300px; height: 300px; background: rgba(106,247,200,0.05); top: 40%; left: 60%; }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+    width: 100%;
+    max-width: 520px;
+    padding: 20px;
+  }
+
+  header {
+    text-align: center;
+  }
+
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 2.6rem;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  header p {
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  /* ORB */
+  .orb-wrapper {
+    position: relative;
+    width: 180px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .orb-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    transition: all 0.6s ease;
+  }
+
+  .orb-ring-1 {
+    width: 180px; height: 180px;
+    border-color: rgba(124,106,247,0.15);
+    animation: rotate 8s linear infinite;
+  }
+  .orb-ring-2 {
+    width: 150px; height: 150px;
+    border-color: rgba(247,106,140,0.12);
+    animation: rotate 5s linear infinite reverse;
+  }
+
+  .orb {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #2a2a5a, #0a0a1a);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 0 0 0 rgba(124,106,247,0);
+    position: relative;
+    z-index: 2;
+  }
+
+  .orb:hover { transform: scale(1.05); }
+
+  .orb.listening {
+    background: radial-gradient(circle at 35% 35%, #4a3aaa, #1a1040);
+    border-color: var(--accent);
+    box-shadow: 0 0 40px rgba(124,106,247,0.4), 0 0 80px rgba(124,106,247,0.15);
+    animation: pulse-listen 1.5s ease-in-out infinite;
+  }
+
+  .orb.speaking {
+    background: radial-gradient(circle at 35% 35%, #aa3a5a, #2a0a14);
+    border-color: var(--accent2);
+    box-shadow: 0 0 40px rgba(247,106,140,0.4), 0 0 80px rgba(247,106,140,0.15);
+    animation: pulse-speak 0.8s ease-in-out infinite;
+  }
+
+  .orb-icon {
+    font-size: 2rem;
+    transition: all 0.3s ease;
+    filter: drop-shadow(0 0 8px rgba(255,255,255,0.3));
+  }
+
+  .orb-label {
+    position: absolute;
+    bottom: -28px;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    transition: color 0.3s;
+    white-space: nowrap;
+  }
+
+  .orb.listening + .orb-label { color: var(--accent); }
+  .orb.speaking + .orb-label { color: var(--accent2); }
+
+  /* Sound bars (shown while listening) */
+  .bars {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    height: 24px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .bars.active { opacity: 1; }
+  .bar {
+    width: 3px;
+    border-radius: 2px;
+    background: var(--accent);
+    animation: bar-bounce 0.8s ease-in-out infinite;
+  }
+  .bar:nth-child(1) { height: 8px;  animation-delay: 0s; }
+  .bar:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+  .bar:nth-child(3) { height: 24px; animation-delay: 0.2s; }
+  .bar:nth-child(4) { height: 16px; animation-delay: 0.3s; }
+  .bar:nth-child(5) { height: 8px;  animation-delay: 0.4s; }
+
+  /* Emotion card */
+  .emotion-card {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.5s cubic-bezier(0.34, 1.2, 0.64, 1);
+  }
+
+  .emotion-card.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .emotion-header {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .emotion-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .emotion-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .emotion-pill {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+
+  .emotion-pill-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .emotion-pill-value {
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--text);
+    text-transform: capitalize;
+  }
+
+  .emotion-pill.mood .emotion-pill-value { color: var(--accent); }
+  .emotion-pill.energy .emotion-pill-value { color: var(--accent3); }
+  .emotion-pill.confidence .emotion-pill-value { color: var(--accent2); }
+
+  .emotion-tone {
+    margin-top: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+
+  .emotion-tone .emotion-pill-value {
+    font-style: italic;
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* Transcript */
+  .transcript {
+    width: 100%;
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 0.78rem;
+    line-height: 1.7;
+    color: var(--muted);
+    scrollbar-width: none;
+  }
+  .transcript::-webkit-scrollbar { display: none; }
+
+  .transcript-line {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    animation: fade-in 0.4s ease;
+  }
+
+  .transcript-line span {
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-right: 8px;
+    color: var(--accent);
+  }
+
+  /* Status bar */
+  .status {
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); }
+  .status-dot.error { background: var(--accent2); }
+
+  /* Keyframes */
+  @keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes pulse-listen {
+    0%, 100% { box-shadow: 0 0 30px rgba(124,106,247,0.3), 0 0 60px rgba(124,106,247,0.1); }
+    50% { box-shadow: 0 0 50px rgba(124,106,247,0.5), 0 0 100px rgba(124,106,247,0.2); }
+  }
+
+  @keyframes pulse-speak {
+    0%, 100% { box-shadow: 0 0 30px rgba(247,106,140,0.3); }
+    50% { box-shadow: 0 0 60px rgba(247,106,140,0.6); }
+  }
+
+  @keyframes bar-bounce {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient ambient-1"></div>
+<div class="ambient ambient-2"></div>
+<div class="ambient ambient-3"></div>
+
+<div class="container">
+  <header>
+    <h1>Echo</h1>
+    <p>emotionally intelligent voice companion</p>
+  </header>
+
+  <div class="orb-wrapper">
+    <div class="orb-ring orb-ring-1"></div>
+    <div class="orb-ring orb-ring-2"></div>
+    <div class="orb" id="orb" onclick="toggleSession()">
+      <span class="orb-icon" id="orbIcon">🎙</span>
+    </div>
+    <div class="orb-label" id="orbLabel">tap to start</div>
+  </div>
+
+  <div class="bars" id="bars">
+    <div class="bar"></div>
+    <div class="bar"></div>
+    <div class="bar"></div>
+    <div class="bar"></div>
+    <div class="bar"></div>
+  </div>
+
+  <div class="emotion-card" id="emotionCard">
+    <div class="emotion-header">🎭 detected emotion</div>
+    <div class="emotion-grid">
+      <div class="emotion-pill mood">
+        <div class="emotion-pill-label">mood</div>
+        <div class="emotion-pill-value" id="eMood">—</div>
+      </div>
+      <div class="emotion-pill energy">
+        <div class="emotion-pill-label">energy</div>
+        <div class="emotion-pill-value" id="eEnergy">—</div>
+      </div>
+      <div class="emotion-pill confidence">
+        <div class="emotion-pill-label">confidence</div>
+        <div class="emotion-pill-value" id="eConfidence">—</div>
+      </div>
+    </div>
+    <div class="emotion-tone">
+      <div class="emotion-pill-label">tone</div>
+      <div class="emotion-pill-value" id="eTone">—</div>
+    </div>
+  </div>
+
+  <div class="transcript" id="transcript"></div>
+
+  <div class="status">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">disconnected</span>
+  </div>
+</div>
+
+<script>
+const WS_URL = "ws://localhost:8001/ws";
+
+let ws = null;
+let audioCtx = null;
+let mediaStream = null;
+let scriptProcessor = null;
+let isActive = false;
+
+// Audio output
+let audioQueue = [];
+let isPlaying = false;
+
+const orb = document.getElementById('orb');
+const orbIcon = document.getElementById('orbIcon');
+const orbLabel = document.getElementById('orbLabel');
+const bars = document.getElementById('bars');
+const emotionCard = document.getElementById('emotionCard');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+function setStatus(label, state) {
+  statusText.textContent = label;
+  statusDot.className = 'status-dot ' + (state || '');
+}
+
+function setState(state) {
+  orb.className = 'orb ' + state;
+  if (state === 'listening') {
+    orbIcon.textContent = '🎙';
+    orbLabel.textContent = 'listening...';
+    bars.classList.add('active');
+  } else if (state === 'speaking') {
+    orbIcon.textContent = '🔊';
+    orbLabel.textContent = 'speaking...';
+    bars.classList.remove('active');
+  } else {
+    orbIcon.textContent = '🎙';
+    orbLabel.textContent = 'tap to start';
+    bars.classList.remove('active');
+  }
+}
+
+function addTranscript(text, turn) {
+  if (!text) return;
+  const div = document.createElement('div');
+  div.className = 'transcript-line';
+  div.innerHTML = `<span>turn ${turn}</span>${text}`;
+  const t = document.getElementById('transcript');
+  t.appendChild(div);
+  t.scrollTop = t.scrollHeight;
+}
+
+function updateEmotion(emotion) {
+  if (!emotion) return;
+  document.getElementById('eMood').textContent = emotion.mood || '—';
+  document.getElementById('eEnergy').textContent = emotion.energy || '—';
+  document.getElementById('eConfidence').textContent = emotion.confidence || '—';
+  document.getElementById('eTone').textContent = emotion.tone || '—';
+  emotionCard.classList.add('visible');
+}
+
+// ----------- AUDIO OUTPUT -----------
+function playNextChunk() {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioQueue.length === 0) {
+    isPlaying = false;
+    setState('listening');
+    return;
+  }
+  isPlaying = true;
+  setState('speaking');
+  const pcm = audioQueue.shift();
+  const buffer = audioCtx.createBuffer(1, pcm.length, 24000);
+  buffer.copyToChannel(pcm, 0);
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioCtx.destination);
+  source.onended = playNextChunk;
+  source.start();
+}
+
+function enqueuePCM(bytes) {
+  // Convert Int16 PCM bytes -> Float32
+  const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+  audioQueue.push(float32);
+  if (!isPlaying) playNextChunk();
+}
+
+// ----------- MIC INPUT -----------
+async function startMic() {
+  audioCtx = new AudioContext({ sampleRate: 16000 });
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const source = audioCtx.createMediaStreamSource(mediaStream);
+  scriptProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
+
+  scriptProcessor.onaudioprocess = (e) => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const float32 = e.inputBuffer.getChannelData(0);
+
+  // DEBUG
+  console.log("sending audio chunk size:", float32.length);
+
+  const int16 = new Int16Array(float32.length);
+
+  for (let i = 0; i < float32.length; i++) {
+    let s = Math.max(-1, Math.min(1, float32[i]));
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+
+  ws.send(int16.buffer);
+};
+
+  source.connect(scriptProcessor);
+  scriptProcessor.connect(audioCtx.destination);
+}
+
+function stopMic() {
+  if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+}
+
+// ----------- WEBSOCKET -----------
+async function toggleSession() {
+  if (isActive) {
+    stopSession();
+  } else {
+    startSession();
+  }
+}
+
+async function startSession() {
+  isActive = true;
+  audioQueue = [];
+  isPlaying = false;
+  setStatus('connecting...', '');
+
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = async () => {
+    setStatus('connected', 'connected');
+    setState('listening');
+    await startMic();
+  };
+
+  ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      // Raw PCM audio from Gemini
+      enqueuePCM(new Uint8Array(event.data));
+    } else {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'turn_complete') {
+        updateEmotion(msg.emotion);
+        addTranscript(msg.text, msg.turn);
+        setState('listening');
+      } else if (msg.type === 'interrupted') {
+        audioQueue = [];
+        isPlaying = false;
+        setState('listening');
+      }
+    }
+  };
+
+  ws.onerror = (e) => {
+    setStatus('connection error', 'error');
+    console.error(e);
+  };
+
+  ws.onclose = () => {
+    setStatus('disconnected', '');
+    setState('');
+    stopMic();
+    isActive = false;
+  };
+}
+
+function stopSession() {
+  isActive = false;
+  if (ws) { ws.close(); ws = null; }
+  stopMic();
+  setState('');
+  setStatus('disconnected', '');
+}
+</script>
+</body>
+</html>
